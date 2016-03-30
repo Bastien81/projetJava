@@ -22,64 +22,49 @@ public class Git extends Observable{
         NONE
     }
     
-    private static Byte[] ReadFile(File f) throws FileNotFoundException, IOException{
-  				
-	FileInputStream fis = new FileInputStream(f);
-        
-        InflaterInputStream decompresser = new InflaterInputStream(fis);
-                
-        ArrayList<Byte> LectureFichier = new ArrayList();
-        int caract;
-        
-        try {
-            while((caract = decompresser.read()) != -1){
-                LectureFichier.add( (byte)caract );
-            }
-        }
-        catch(IOException e) {
-            throw new IOException("fichier "+f.getName()+" : "+e.getMessage());
-        }
-         
-        return LectureFichier.toArray(new Byte[0]);         
-               
-    }
-    
     
     
     private static ObjectType getType( File _gitObject ) throws IOException {
-          Byte[] file = ReadFile(_gitObject);
-          StringBuilder mot = new StringBuilder();
-          for (int i = 0; i < 10; i++) {
-             mot.append((char)file[i].byteValue());
-                    }
-          if(mot.toString().startsWith("tree")){
-            return ObjectType.TREE;
-          }
-          
-          else if(mot.toString().startsWith("tag")){
-            return ObjectType.TAG;
-          }
-          
-          else if(mot.toString().startsWith("blob")){
+        
+        Byte[] file = FileReading.ReadFile(_gitObject);
+        StringBuilder mot = new StringBuilder();
+        
+        // on recupere les 10 premiers caracteres du fichier qui correspondent
+        // au type du fichier 
+        for (int i = 0; i < 10 && i < file.length; i++) {
+            mot.append((char)file[i].byteValue());
+        }
+
+        // puis on compare les caracteres obtenu aux differents noms des objets
+        // git pour savoir le type d'objet qu'on a 
+        
+        if(mot.toString().startsWith("blob")){
             return ObjectType.BLOB;
-          }
-          
-          else if(mot.toString().startsWith("commit")){
+        }
+
+        else if(mot.toString().startsWith("tree")){
+            return ObjectType.TREE;
+        }
+
+        else if(mot.toString().startsWith("commit")){
             return ObjectType.COMMIT;
-          }
-          
-          else {
-              return ObjectType.NONE;
-          }
+        }
+
+
+        else {
+            return ObjectType.NONE;
+        }
     }
+    
     
     public Git(){
         gitDirectory = null;
         objects = new ArrayList();
     }
+
     
-    public void setGitDirectory(File _gitDirectory) throws DirectoryDoesNotExistException, NotGitDirectoryException, IOException{
-        
+    public void setGitDirectory(File _gitDirectory) throws DirectoryDoesNotExistException, NotGitDirectoryException, IOException {
+       // on gere les erreurs pouvant etre rencontrees avec le dossiers git  
         if(!_gitDirectory.exists()) {
             throw new DirectoryDoesNotExistException("Le dossier <" + gitDirectory.getAbsolutePath() + "> n'existe pas");
         }
@@ -89,17 +74,23 @@ public class Git extends Observable{
         }
         
         File objectsDirectory= new File(_gitDirectory,"objects");
+        File tagsDirectory = new File(new File(_gitDirectory,"refs"),"tags");
         
         if(!objectsDirectory.exists()) {
             throw new DirectoryDoesNotExistException("Le dossier <" + objectsDirectory.getName()+ "> n'existe pas");
         }
         
+        if(!tagsDirectory.exists()) {
+            throw new DirectoryDoesNotExistException("Le dossier <refs/" + tagsDirectory.getName()+ "> n'existe pas");
+        }
+        
         gitDirectory = _gitDirectory;
+        objects.clear();
         
         for (File f: objectsDirectory.listFiles()){
 
             // on ne traite pas les dossiers infos et pack pour le moment
-            if(!f.getName().equals("pack") && f.getName().equals("info") ) {     
+            if(!f.getName().equals("pack") && !f.getName().equals("info") ) {     
                 for (File f2: f.listFiles()){
 
                     ObjectType type = getType(f2);
@@ -107,23 +98,25 @@ public class Git extends Observable{
                     switch(type){
 
                         case BLOB:
-                            objects.add(new Blob( f2 ));
+                            objects.add(new Blob( f2, this ));
                             break;
 
                         case TREE:
-                            objects.add(new Tree( f2 ));
+                            objects.add(new Tree( f2, this ));
                             break;
 
                         case COMMIT:
-                            objects.add(new Commit( f2 ));
-                            break;
-
-                        case TAG:
-                            objects.add(new Tag( f2 ));
+                            objects.add(new Commit( f2, this ));
                             break;
                     }
                 }
             }
+        }
+        
+        for (File fTag : tagsDirectory.listFiles()) {
+            
+            objects.add( new Tag( fTag, this ) );
+            
         }
         
         setChanged();
@@ -131,10 +124,20 @@ public class Git extends Observable{
         
     }
 
-    public File getGitDirectory() {
+    public ArrayList<GitObject> getObjects() {
         
-        return gitDirectory;
+        return objects;
         
+    }
+    
+    // renvoie le git object associe a la cle de 40 caracteres
+    public GitObject find (String cle){
+        for (GitObject object : objects) {
+            if (object.getName().equals(cle)) {
+                return object;
+            }
+        }
+        return null;
     }
     
 }
